@@ -27,37 +27,15 @@ impl<T> BitIter<T>
   }
 }
 
-impl From<u128> for BitIter<u128> {
-  fn from (value: u128) -> Self {
+impl From<u32> for BitIter<u32> {
+  fn from (value: u32) -> Self {
     if value == 0 {
       return BitIter(Some(0), 0);
     }
 
-    // for i in (0..u128::BITS).rev() {
-    //   if (value >> i) & 1 == 1 {
-    //     return BitIter(Some(i), value);
-    //   }
-    // }
-    let pos = (0..u128::BITS)
+    let pos = (0..u32::BITS)
       .rposition(|i| (value >> i) & 1 == 1);
     return BitIter(pos, value);
-  }
-}
-
-impl From<usize> for BitIter<usize> {
-  fn from (value: usize) -> Self {
-    if value == 0 {
-      return BitIter(Some(0), 0);
-    }
-
-    // for i in (0..usize::BITS).rev() {
-    //   if (value >> i) & 1 == 1 {
-    //     return BitIter(Some(i), value);
-    //   }
-    // }
-    let pos = (0..usize::BITS)
-      .rposition(|i| (value >> i) & 1 == 1);
-    BitIter(pos, value)
   }
 }
 
@@ -94,14 +72,14 @@ mod tests {
 
   #[test]
   fn degree () {
-    assert_eq!(BitIter::from(0b100_usize).degree(), 2);
-    assert_eq!(BitIter::from(0b1010_usize).degree(), 3);
-    assert_eq!(BitIter::from(0b1_u128 << 119).degree(), 119);
+    assert_eq!(BitIter::from(0b100_u32).degree(), 2);
+    assert_eq!(BitIter::from(0b1010_u32).degree(), 3);
+    assert_eq!(BitIter::from(0b1_u32 << 30).degree(), 30);
   }
 
   #[test]
   fn some () {
-    let mut s: BitIter<usize> = 11.into(); // 1011
+    let mut s: BitIter<u32> = 11.into(); // 1011
 
     assert_eq!(s, BitIter(Some(3), 11));
     assert_eq!(s.next(), Some(true));
@@ -114,7 +92,7 @@ mod tests {
 
   #[test]
   fn zero () {
-    let mut s: BitIter<usize> = 0.into(); // 0
+    let mut s: BitIter<u32> = 0.into(); // 0
 
     assert_eq!(s, BitIter(Some(0), 0));
     assert_eq!(s.next(), Some(false));

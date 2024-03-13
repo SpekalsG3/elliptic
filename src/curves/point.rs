@@ -1,3 +1,4 @@
+use num_bigint::BigUint;
 use crate::field::field_element::FieldElement;
 
 #[derive(PartialEq)]
@@ -11,6 +12,6 @@ impl Point<'_> {
         self.y.is_zero()
     }
     pub fn is_identity(&self) -> bool {
-        self.y.value == 1
+        self.y.value == BigUint::from(1_u8)
     }
 }

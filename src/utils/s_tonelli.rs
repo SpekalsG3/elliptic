@@ -1,58 +1,63 @@
+use num_bigint::BigUint;
+use num_traits::Zero;
 use crate::field::field_element::FieldElement;
 
 /// Tonelli-Shanks algorithm
 /// Find quadratic residue `n` for given `x`, such that `x^2 = n mod p`, where p is prime
 /// According to Euler's criterion, in such field root exists iff `n^{(p-1)/2} = 1 mod p`
 pub fn tonelli_shanks(x: FieldElement<'_>) -> Option<(FieldElement<'_>, FieldElement<'_>)> {
+    let big_one = BigUint::from(1_u8);
+    let big_two = BigUint::from(2_u8);
+
     let one = x.field.one();
-    let one_inv = -one; // p - 1
+    let one_inv = -one.clone(); // p - 1
 
-    let p = x.field.order;
-    let mut q = p - 1;
+    let p = x.field.order.clone();
+    let mut q = p.clone() - big_one.clone();
     let mut ss: u128 = 0;
-    let mut z = FieldElement::new(x.field, 2);
+    let mut z = FieldElement::new(x.field, big_two.clone());
 
-    if x ^ ((p - 1) / 2) != one {
+    if x.clone() ^ ((p.clone() - big_one.clone()) / big_two.clone()) != one {
         return None;
     }
 
-    while (q & 1) == 0 {
+    while (q.clone() & big_one.clone()).is_zero() {
         ss += 1;
         q >>= 1;
     }
 
     if ss == 1 {
-        let r1 = x ^ ((p + 1) / 4); // +1 ???
-        return Some((r1, -r1));
+        let r1 = x.clone() ^ ((p.clone() + big_one.clone()) / BigUint::from(4_u8)); // +1 ???
+        return Some((r1.clone(), -r1));
     }
 
-    while z ^ ((p - 1) / 2) != one_inv {
-        z = z + one;
+    while z.clone() ^ ((p.clone() - big_one.clone()) / big_two.clone()) != one_inv {
+        z = z.clone() + one.clone();
     }
 
-    let mut c = z ^ q;
-    let mut r = x ^ ((q + 1) / 2);
+    let mut c = z ^ q.clone();
+    let mut r = x.clone() ^ ((q.clone() + big_one) / big_two);
     let mut t = x ^ q;
     let mut m = ss;
 
     loop {
         if t == one {
-            return Some((r, -r));
+            return Some((r.clone(), -r));
         }
         let mut i = 0;
-        let mut zz = t;
+        let mut zz = t.clone();
         while zz != one && i < (m - 1) {
-            zz = zz * zz;
+            zz = zz.clone() * zz;
             i += 1;
         }
-        let mut b = c;
+        let mut b = c.clone();
         let mut e = m - i - 1;
         while e > 0 {
-            b = b * b;
+            b = b.clone() * b;
             e -= 1;
         }
-        c = b * b;
-        t = t * c;
+        c = b.clone() * b.clone();
+        t = t * c.clone();
         r = r * b;
         m = i;
     }
@@ -67,10 +72,10 @@ mod tests {
     #[test]
     fn test () {
         fn run (p: u128, n: u128, r: Option<(u128, u128)>) {
-            let field = Field::new(p);
+            let field = Field::new(p.into());
             assert_eq!(
-                tonelli_shanks(FieldElement::new(&field, n)),
-                r.map(|(r1, r2)| (FieldElement::new(&field, r1), FieldElement::new(&field, r2)))
+                tonelli_shanks(FieldElement::new(&field, n.into())),
+                r.map(|(r1, r2)| (FieldElement::new(&field, r1.into()), FieldElement::new(&field, r2.into())))
             )
         }
 

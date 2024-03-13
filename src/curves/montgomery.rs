@@ -1,3 +1,5 @@
+use std::str::FromStr;
+use num_bigint::BigUint;
 use crate::curves::point::Point;
 use crate::field::field_element::FieldElement;
 use crate::utils::bit_iter::BitIter;
@@ -5,9 +7,14 @@ use crate::utils::s_tonelli::tonelli_shanks;
 
 pub const MONTGOMERY_A: u128 = 486662;
 pub const MONTGOMERY_B: u128 = 1;
-// pub const MONTGOMERY_ORDER: u128 = (1 << 252) + 27742317777372353535851937790883648493;
-// pub const MONTGOMERY_PRIME: u128 = (1_u128 << 255_u128) - 19;
-pub const MONTGOMERY_PRIME: u128 = 3;
+// fn get_montgomery_order() -> BigUint {
+//     // (1 << 252) + 27742317777372353535851937790883648493
+//     BigUint::from_str("7237005577332262213973186563042994240857116359379907606001950938285454250989").unwrap()
+// }
+fn get_montgomery_prime() -> BigUint {
+    // (1_u128 << 255_u128) - 19
+    BigUint::from_str("57896044618658097711785492504343953926634992332820282019728792003956564819949").unwrap()
+}
 
 // B * y^2 = x^3 + A * x^2 + x
 pub struct MontgomeryCurve<'a> {
@@ -32,14 +39,14 @@ impl<'a> MontgomeryCurve<'a> {
     pub fn generator(
         &self,
     ) -> Point<'a> {
-        assert_eq!(self.a.value, MONTGOMERY_A, "unknown curve");
-        assert_eq!(self.b.value, MONTGOMERY_B, "unknown curve");
-        assert_eq!(self.a.field.order, MONTGOMERY_PRIME, "unknown field");
+        assert_eq!(self.a.value, MONTGOMERY_A.into(), "unknown curve");
+        assert_eq!(self.b.value, MONTGOMERY_B.into(), "unknown curve");
+        assert_eq!(self.a.field.order, get_montgomery_prime(), "unknown field");
 
-        let x = FieldElement::new(self.a.field, 9);
+        let x = FieldElement::new(self.a.field, BigUint::from(9_u8));
         Point {
-            x,
-            y: tonelli_shanks((x ^ 3_usize) + self.a * (x ^ 2_usize) + x).expect("should be solvable").0,
+            x: x.clone(),
+            y: tonelli_shanks((x.clone() ^ BigUint::from(3_u8)) + self.a.clone() * (x.clone() ^ BigUint::from(2_u8)) + x).expect("should be solvable").0,
         }
     }
 
@@ -48,12 +55,12 @@ impl<'a> MontgomeryCurve<'a> {
         p1: &Point<'a>,
     ) -> Point<'a> {
         let one = self.a.field.one();
-        let two = FieldElement::new(self.a.field, 2);
-        let three = FieldElement::new(self.a.field, 3);
+        let two = FieldElement::new(self.a.field, BigUint::from(2_u8));
+        let three = FieldElement::new(self.a.field, BigUint::from(3_u8));
 
-        let slope = (three * (p1.x ^ 2_usize) + two * self.a * p1.x + one) / (two * self.b * p1.y);
-        let x = self.b * (slope ^ 2_usize) - self.a - p1.x - p1.x;
-        let y = (two * p1.x + p1.x + self.a) * slope - self.b * (slope ^ 3_usize) - p1.y;
+        let slope = (three * (p1.x.clone() ^ BigUint::from(2_u8)) + two.clone() * self.a.clone() * p1.x.clone() + one) / (two.clone() * self.b.clone() * p1.y.clone());
+        let x = self.b.clone() * (slope.clone() ^ BigUint::from(2_u8)) - self.a.clone() - p1.x.clone() - p1.x.clone();
+        let y = (two * p1.x.clone() + p1.x.clone() + self.a.clone()) * slope.clone() - self.b.clone() * (slope ^ BigUint::from(3_u8)) - p1.y.clone();
         Point { x, y }
     }
 
@@ -63,20 +70,20 @@ impl<'a> MontgomeryCurve<'a> {
         p2: &Point<'a>,
     ) -> Point<'a> {
         if p1.x == p2.x {
-            if p1.y == -p2.y {
+            if p1.y == -p2.y.clone() {
                 return Point {
-                    x: p1.x,
+                    x: p1.x.clone(),
                     y: p1.x.field.zero(),
                 }
             }
             return self.point_double(p1);
         }
 
-        let two = FieldElement::new(self.a.field, 2);
+        let two = FieldElement::new(self.a.field, BigUint::from(2_u8));
 
-        let slope = (p2.y - p1.y) / (p2.x - p1.x);
-        let x = self.b * (slope ^ 2_usize) - self.a - p1.x - p2.x;
-        let y = (two * p1.x + p2.x + self.a) * slope - self.b * (slope ^ 3_usize) - p1.y;
+        let slope = (p2.y.clone() - p1.y.clone()) / (p2.x.clone() - p1.x.clone());
+        let x = self.b.clone() * (slope.clone() ^ BigUint::from(2_u8)) - self.a.clone() - p1.x.clone() - p2.x.clone();
+        let y = (two * p1.x.clone() + p2.x.clone() + self.a.clone()) * slope.clone() - self.b.clone() * (slope ^ BigUint::from(3_u8)) - p1.y.clone();
         Point { x, y }
     }
 
@@ -87,13 +94,15 @@ impl<'a> MontgomeryCurve<'a> {
     ) -> Point<'a> {
         let mut r0 = Point { x: p1.x.field.zero(), y: p1.x.field.zero() };
         let mut r1 = p1;
-        for b in BitIter::new(u128::BITS as usize, n.value) {
-            if b {
-                r0 = self.point_add(&r0, &r1);
-                r1 = self.point_double(&r1);
-            } else {
-                r1 = self.point_add(&r0, &r1);
-                r0 = self.point_double(&r0);
+        for digit in n.value.iter_u32_digits() {
+            for b in BitIter::new(u128::BITS as usize, digit) {
+                if b {
+                    r0 = self.point_add(&r0, &r1);
+                    r1 = self.point_double(&r1);
+                } else {
+                    r1 = self.point_add(&r0, &r1);
+                    r0 = self.point_double(&r0);
+                }
             }
         }
         r0

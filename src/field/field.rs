@@ -1,14 +1,19 @@
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use num_bigint::{BigInt, BigUint};
+use num_traits::Zero;
 use crate::field::field_element::FieldElement;
-use crate::utils::gcd::gcd;
+use crate::utils::xgcd::u_xgcd;
 
-// 270497897142230380135924736767050121217
-pub const FIELD_PRIME: u128 = 1 + 407 * (1 << 119);
+#[cfg(test)]
+pub fn get_field_prime() -> BigUint {
+  // 270497897142230380135924736767050121217
+  BigUint::from(1_u128 + 407 * (1 << 119))
+}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Field {
-  pub order: u128,
+  pub order: BigUint,
 }
 
 impl From<&str> for Field {
@@ -26,7 +31,7 @@ impl Display for Field {
 }
 
 impl Field {
-  pub fn new (order: u128) -> Field {
+  pub fn new (order: BigUint) -> Field {
     // assert_eq!(order, FIELD_PRIME, "Only 1+407*2^119 currently implemented");
     Field {
       order,
@@ -35,94 +40,53 @@ impl Field {
 }
 
 impl<'a> Field {
-  pub fn generator (&'a self) -> FieldElement<'a> {
-    assert_eq!(self.order, FIELD_PRIME, "Do not know generator for orders other than 1+407*2^119");
-    FieldElement::new(&self, 85408008396924667383611388730472331217) // why use this big number?
-  }
-
-  pub fn smallest_generator(&'a self) -> FieldElement<'a> {
-    // In a finite field GF(q) number of primitive elements is phi(q-1), where phi is Euler's totient function
-    // which counts number of coprime elements to q-1. Meaning it's enough to find gcd(k, q-1),
-    // where 3 <= k <= q-1 and k is coprime to q-1
-    let mut k = 3;
-    while gcd(k, self.order-1) != 1 {
-      k += 1;
-    }
-    FieldElement::new(&self, k)
-  }
-
-  pub fn primitive_nth_root (&'a self, n: u128) -> FieldElement<'a> {
-    assert!((n & (n - 1) == 0) && (n <= (1 << 119)), "Field does not have any roots where n > 2^119 or not a power of two.");
-
-    // same as generator, is it important?
-    let mut root = self.generator();
-
-    let mut order = 1 << 119;
-    while order != n {
-      root = root ^ 2_u128;
-      order = order / 2_u128;
-    }
-
-    root
-  }
-
   pub fn zero (&'a self) -> FieldElement<'a> {
     FieldElement {
       field: &self,
-      value: 0,
+      value: BigUint::zero(),
     }
   }
 
   pub fn one (&'a self) -> FieldElement<'a> {
     FieldElement {
       field: &self,
-      value: 1,
+      value: BigUint::from(1_u8),
     }
   }
 
-  pub fn sample (&self, bytes: &[u8]) -> FieldElement {
-    let res = bytes
-        .iter()
-        .fold(0_u128, |acc, b| {
-          acc.overflowing_shl(8).0 ^ (*b as u128)
-        });
-
-    FieldElement {
-      field: &self,
-      value: res % self.order,
-    }
-  }
-
-  pub(crate) fn sub_mod (&self, a: u128, b: u128) -> u128 {
+  pub(crate) fn sub_mod (&self, a: BigUint, b: BigUint) -> BigUint {
     match a.cmp(&b) {
       Ordering::Greater => a - b,
-      Ordering::Equal => 0,
-      Ordering::Less => self.order - b + a,
+      Ordering::Equal => BigUint::zero(),
+      Ordering::Less => self.order.clone() - b + a,
     }
   }
 
-  pub(crate) fn add_mod (&self, a: u128, b: u128) -> u128 {
-    if b == 0 {
+  pub(crate) fn add_mod (&self, a: BigUint, b: BigUint) -> BigUint {
+    if b.is_zero() {
       return a;
     }
 
-    self.sub_mod(a, self.order - b)
+    self.sub_mod(a, self.order.clone() - b)
   }
 
-  pub(crate) fn mul_mod (&self, a: u128, b: u128) -> u128 {
-    let mut res = 0;
+  pub(crate) fn mul_mod (&self, a: BigUint, b: BigUint) -> BigUint {
+    let big_zero = BigUint::zero();
+    let big_one = BigUint::from(1_u8);
+
+    let mut res = BigUint::zero();
 
     let mut a = a;
     let mut b = b;
 
-    while b > 0 {
-      if b % 2 == 1 {
-        res = self.add_mod(res, a);
+    while b > big_zero {
+      if b.clone() & big_one.clone() == big_one {
+        res = self.add_mod(res, a.clone());
       }
 
-      a = self.add_mod(a, a);
+      a = self.add_mod(a.clone(), a);
 
-      b /= 2;
+      b /= BigUint::from(2_u8);
     }
 
     // // source - https://www.youtube.com/watch?v=9hSmQtL49g4&ab_channel=DG
@@ -143,11 +107,23 @@ impl<'a> Field {
     res
   }
 
-  pub(crate) fn neg_mod (&self, a: u128) -> u128 {
-    if a == 0 {
-      0
+  pub(crate) fn neg_mod (&self, a: BigUint) -> BigUint {
+    if a.is_zero() {
+      a
     } else {
-      self.order - a
+      self.order.clone() - a
+    }
+  }
+
+  // inverse of `x` is `x ** -1 = 1/x` so that `x` multiplied by inversed `x` is `1`
+  pub(crate) fn inv (&self, a: BigUint) -> BigUint {
+    let (a, _, _) = u_xgcd(a, self.order.clone());
+
+    // because a can be negative
+    match a.cmp(&BigInt::zero()) {
+      Ordering::Greater => a.to_biguint().unwrap(),
+      Ordering::Equal => BigUint::zero(),
+      Ordering::Less => self.sub_mod(self.order.clone(), (-a).to_biguint().unwrap()),
     }
   }
 }
@@ -158,59 +134,25 @@ mod tests {
 
   #[test]
   fn mul () {
-    let field = Field::new(FIELD_PRIME);
+    let field = Field::new(get_field_prime());
 
-    assert_eq!(field.mul_mod(2, 3), 6);
-    assert_eq!(field.mul_mod(FIELD_PRIME, 3), 0);
-    assert_eq!(field.mul_mod(FIELD_PRIME - 1, 3), FIELD_PRIME - 3);
-  }
-
-  #[test]
-  fn primitive_nth_root () {
-    let field = Field::new(FIELD_PRIME);
-
-    let n = 256;
-    let n_log = 8; // so that 2 ** `n_log` = n
-    let z = field.primitive_nth_root(n);
-
-    assert_eq!(
-      field.primitive_nth_root(256),
-      FieldElement::new(&field, 178902808384765167578311106676137348214),
-    );
-    assert_eq!(
-      field.primitive_nth_root(2),
-      FieldElement::new(&field, 270497897142230380135924736767050121216),
-    );
-
-    // straightforward
-    let powered = (0..n-1)
-      .fold(z.value, |acc, _| {
-        field.mul_mod(acc, z.value)
-      });
-    assert_eq!(powered, 1, "omega is not {}th root of unity", n);
-
-    let powered = (0..n-2)
-      .fold(z.value, |acc, _| {
-        field.mul_mod(acc, z.value)
-      });
-    assert_ne!(powered, 1, "omega is not primitive");
-
-    assert_eq!(z ^ (1_usize << n_log), field.one(), "omega not nth root of unity");
-    assert_ne!(z ^ (1_usize << (n_log - 1)), field.one(), "omega not primitive");
+    assert_eq!(field.mul_mod(BigUint::from(2_u128), BigUint::from(3_u128)), BigUint::from(6_u8));
+    assert_eq!(field.mul_mod(get_field_prime(), BigUint::from(3_u128)), BigUint::from(0_u8));
+    assert_eq!(field.mul_mod(get_field_prime() - BigUint::from(1_u8), BigUint::from(3_u128)), get_field_prime() - BigUint::from(3_u8));
   }
 
   #[test]
   fn neg () {
-    let field = Field::new(FIELD_PRIME);
-    assert_eq!(field.neg_mod(256), 270497897142230380135924736767050120961);
-    let field = Field::new(100);
+    let field = Field::new(get_field_prime());
+    assert_eq!(field.neg_mod(BigUint::from(256_u128)), BigUint::from(270497897142230380135924736767050120961_u128));
+    let field = Field::new(BigUint::from(100_u128));
     assert_eq!(
-      field.add_mod(20, field.neg_mod(20)),
-      0,
+      field.add_mod(BigUint::from(20_u128), field.neg_mod(BigUint::from(20_u128))),
+      BigUint::from(0_u8),
     );
     assert_eq!(
-      field.add_mod(20, field.neg_mod(19)),
-      1,
+      field.add_mod(BigUint::from(20_u128), field.neg_mod(BigUint::from(19_u128))),
+      BigUint::from(1_u8),
     );
   }
 }

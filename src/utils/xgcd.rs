@@ -1,4 +1,6 @@
 use std::ops::Neg;
+use num_bigint::{BigInt, BigUint};
+use num_traits::{ToPrimitive, Zero};
 
 // original from tutorial
 #[deprecated(note="overflow when working close to boundary, use `u_xgcd`")]
@@ -19,18 +21,19 @@ pub fn xgcd (a: u128, b: u128) -> (i128, i128, u128) {
 
 // version using unsigned arithmetics - no overflow
 // source - https://jeffhurchalla.com/2018/10/13/implementing-the-extended-euclidean-algorithm-with-unsigned-inputs/
-pub fn u_xgcd (a: u128, b: u128) -> (i128, i128, u128) {
-  let mut xy1 = (1_i128, 0_i128);
+pub fn u_xgcd (a: BigUint, b: BigUint) -> (BigInt, BigInt, BigUint) {
+  let mut xy1 = (BigInt::from(1_i128), BigInt::from(0_i128));
 
-  let mut xy0 = (0_i128, 1_i128);
+  let mut xy0 = (BigInt::from(0_i128), BigInt::from(1_i128));
 
   let mut a = (a, b);
 
-  let mut q = 0_u128;
+  let mut q = BigUint::zero();
 
-  while a.1 != 0 {
-    let x2 = xy0.0 - (q as i128) * xy1.0;
-    let y2 = xy0.1 - (q as i128) * xy1.1;
+  while !a.1.is_zero() {
+    let q_i = BigInt::from(q.clone());
+    let x2 = xy0.0 - q_i.clone() * xy1.0.clone();
+    let y2 = xy0.1 - q_i * xy1.1.clone();
 
     xy0 = xy1;
     xy1 = (x2, y2);
@@ -40,25 +43,16 @@ pub fn u_xgcd (a: u128, b: u128) -> (i128, i128, u128) {
     // q = a0 / a.0;
     // a.1 = a0 - q * a.0;
 
-    q = a.0 / a.1;
-    a = (a.1, a.0 - q * a.1)
+    q = a.0.clone() / a.1.clone();
+    a = (a.1.clone(), a.0 - q.clone() * a.1.clone())
   }
 
-  (xy1.0, xy1.1, a.0)
-}
-
-pub fn multiplicative_inverse (x: u128, y: u128, m: u128) -> u128 {
-  let (a, _, _) = u_xgcd(y, m);
-  if a < 0 {
-    (m - x) * (a.neg() as u128) % m
-  } else {
-    x * (a as u128) % m
-  }
+  (xy1.0, xy1.1, a.0.into())
 }
 
 #[cfg(test)]
 mod tests {
-  use crate::field::field::FIELD_PRIME;
+  use crate::field::field::get_field_prime;
   use super::*;
 
   #[test]
@@ -71,17 +65,8 @@ mod tests {
 
   #[test]
   fn test_u_xgcd () {
-    assert_eq!(u_xgcd(10, 5), (0, 1, 5));
-    assert_eq!(u_xgcd(240, 46), (-9, 47, 2));
-    assert_eq!(u_xgcd(3, FIELD_PRIME), (90165965714076793378641578922350040406, -1, 1));
-  }
-
-  #[test]
-  fn u_xgcd_multiplicative_inverse () {
-    assert_eq!(multiplicative_inverse( 6, 2, 23), 3);
-    assert_eq!(multiplicative_inverse(12, 4, 23), 3);
-    assert_eq!(multiplicative_inverse( 8, 8, 23), 1);
-    assert_eq!(multiplicative_inverse( 1, 1, 23), 1);
-    assert_eq!(multiplicative_inverse( 0, 5, 23), 0);
+    assert_eq!(u_xgcd(BigUint::from(10_u8), BigUint::from(5_u8)), (BigInt::from(0), BigInt::from(1), BigUint::from(5_u8)));
+    assert_eq!(u_xgcd(BigUint::from(240_u8), BigUint::from(46_u8)), (BigInt::from(-9), BigInt::from(47), BigUint::from(2_u8)));
+    assert_eq!(u_xgcd(BigUint::from(3_u8), get_field_prime()), (BigInt::from(90165965714076793378641578922350040406_u128), BigInt::from(-1), BigUint::from(1_u8)));
   }
 }
