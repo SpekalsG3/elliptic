@@ -2,67 +2,64 @@ use std::ops::{BitAnd, Shr};
 use std::usize;
 
 #[derive(Debug, PartialOrd, PartialEq)]
-pub struct BitIter<T>(pub(crate) Option<usize>, pub(crate) T);
-
-impl<T> BitIter<T> {
-  pub fn new(i: usize, v: T) -> Self {
-    Self(Some(i), v)
-  }
-
-  pub fn bit_index (&self) -> Option<usize> {
-    self.0
-  }
+pub struct BitIter<T>{
+  done: bool,
+  pub(crate) b: usize, // biggest
+  pub(crate) l: usize, // least
+  pub(crate) value: T,
 }
 
-impl<T> BitIter<T>
-  where
-    Self: Iterator
-{
-  pub fn degree (self) -> usize {
-    if let Some((i, _)) = self.enumerate().last() {
-      i
-    } else {
-      0
-    }
+impl BitIter<u32> {
+  pub fn at_big(mut self) -> Self {
+    let size = u32::BITS as usize;
+    self.b = (0..size)
+        .rposition(|i| (self.value >> i) & 1 == 1)
+        .unwrap_or(self.l);
+    self
   }
 }
-
 impl From<u32> for BitIter<u32> {
   fn from (value: u32) -> Self {
-    if value == 0 {
-      return BitIter(Some(0), 0);
+    BitIter {
+      done: false,
+      b: u32::BITS as usize - 1,
+      l: 0,
+      value,
+    }
+  }
+}
+impl Iterator for BitIter<u32> {
+  type Item = bool;
+  fn next (&mut self) -> Option<Self::Item> {
+    if self.done {
+      return None;
     }
 
-    let pos = (0..u32::BITS)
-      .rposition(|i| (value >> i) & 1 == 1);
-    return BitIter(pos, value);
+    let bit = self.value >> self.b & 1;
+    if self.b == self.l {
+      self.done = true
+    } else {
+      self.b -= 1;
+    }
+
+    Some(bit == 1)
   }
 }
 
-impl<T> Iterator for BitIter<T>
-  where
-    T: Shr<usize> + Copy + From<u8>,
-    <T as Shr<usize>>::Output: BitAnd<T>,
-    <<T as Shr<usize>>::Output as BitAnd<T>>::Output: PartialEq<T>,
-{
-  type Item = bool;
-  fn next (&mut self) -> Option<Self::Item> {
-    let i = match self.0 {
-      Some(i) => i,
-      None => {
-        return None;
-      }
-    };
-
-    let bit = self.1 >> i & 1_u8.into();
-
-    if i == 0 {
-      self.0 = None;
-    } else {
-      self.0 = Some(i - 1);
+impl DoubleEndedIterator for BitIter<u32> {
+  fn next_back(&mut self) -> Option<Self::Item> {
+    if self.done {
+      return None;
     }
 
-    Some(bit.eq(&1_u8.into()))
+    let bit = self.value >> self.l & 1;
+    if self.b == self.l {
+      self.done = true
+    } else {
+      self.l += 1;
+    }
+
+    Some(bit == 1)
   }
 }
 
@@ -71,32 +68,58 @@ mod tests {
   use super::*;
 
   #[test]
-  fn degree () {
-    assert_eq!(BitIter::from(0b100_u32).degree(), 2);
-    assert_eq!(BitIter::from(0b1010_u32).degree(), 3);
-    assert_eq!(BitIter::from(0b1_u32 << 30).degree(), 30);
-  }
+  fn all () {
+    let mut s = BitIter::from(11);
 
-  #[test]
-  fn some () {
-    let mut s: BitIter<u32> = 11.into(); // 1011
-
-    assert_eq!(s, BitIter(Some(3), 11));
+    for _ in 0..(u32::BITS - 4) {
+      assert_eq!(s.next(), Some(false));
+    }
     assert_eq!(s.next(), Some(true));
     assert_eq!(s.next(), Some(false));
     assert_eq!(s.next(), Some(true));
     assert_eq!(s.next(), Some(true));
     assert_eq!(s.next(), None);
-    assert_eq!(s, BitIter(None, 11));
+  }
+
+  #[test]
+  fn next () {
+    let mut s = BitIter::from(11).at_big();
+
+    assert_eq!(s.next(), Some(true));
+    assert_eq!(s.next(), Some(false));
+    assert_eq!(s.next(), Some(true));
+    assert_eq!(s.next(), Some(true));
+    assert_eq!(s.next(), None);
+  }
+
+  #[test]
+  fn back () {
+    let mut s = BitIter::from(11).at_big();
+
+    assert_eq!(s.next_back(), Some(true));
+    assert_eq!(s.next_back(), Some(true));
+    assert_eq!(s.next_back(), Some(false));
+    assert_eq!(s.next_back(), Some(true));
+    assert_eq!(s.next_back(), None);
+  }
+
+  #[test]
+  fn both () {
+    let mut s = BitIter::from(11).at_big();
+
+    assert_eq!(s.next(),      Some(true));
+    assert_eq!(s.next_back(), Some(true));
+    assert_eq!(s.next_back(), Some(true));
+    assert_eq!(s.next(),      Some(false));
+    assert_eq!(s.next_back(), None);
+    assert_eq!(s.next(),      None);
   }
 
   #[test]
   fn zero () {
-    let mut s: BitIter<u32> = 0.into(); // 0
+    let mut s = BitIter::from(0).at_big(); // 0
 
-    assert_eq!(s, BitIter(Some(0), 0));
     assert_eq!(s.next(), Some(false));
     assert_eq!(s.next(), None);
-    assert_eq!(s, BitIter(None, 0));
   }
 }
