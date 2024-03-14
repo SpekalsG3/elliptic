@@ -30,16 +30,18 @@ impl Display for Field {
   }
 }
 
-impl Field {
+impl<'a> Field {
   pub fn new (order: BigUint) -> Field {
     // assert_eq!(order, FIELD_PRIME, "Only 1+407*2^119 currently implemented");
     Field {
       order,
     }
   }
-}
 
-impl<'a> Field {
+  pub fn get(&self, v: BigUint) -> FieldElement {
+    FieldElement::new(self, v)
+  }
+
   pub fn zero (&'a self) -> FieldElement<'a> {
     FieldElement {
       field: &self,
@@ -58,7 +60,7 @@ impl<'a> Field {
     match a.cmp(&b) {
       Ordering::Greater => a - b,
       Ordering::Equal => BigUint::zero(),
-      Ordering::Less => self.order.clone() - b + a,
+      Ordering::Less => self.neg_mod(b - a),
     }
   }
 

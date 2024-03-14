@@ -28,7 +28,7 @@ pub fn tonelli_shanks(x: FieldElement<'_>) -> Option<(FieldElement<'_>, FieldEle
 
     if ss == 1 {
         let r1 = x.clone() ^ ((p.clone() + big_one.clone()) / BigUint::from(4_u8)); // +1 ???
-        return Some((r1.clone(), -r1));
+        return Some((-r1.clone(), r1));
     }
 
     while z.clone() ^ ((p.clone() - big_one.clone()) / big_two.clone()) != one_inv {
@@ -42,7 +42,7 @@ pub fn tonelli_shanks(x: FieldElement<'_>) -> Option<(FieldElement<'_>, FieldEle
 
     loop {
         if t == one {
-            return Some((r.clone(), -r));
+            return Some((-r.clone(), r));
         }
         let mut i = 0;
         let mut zz = t.clone();
@@ -79,11 +79,12 @@ mod tests {
             )
         }
 
-        run(13, 10, Some((7, 6)));
-        run(101, 56, Some((37, 64)));
-        run(10009, 1030, Some((1632, 8377)));
-        run(100049, 44402, Some((30468, 69581)));
-        run(1000000009, 665820697, Some((378633312, 621366697)));
-        run(1000000000039, 881398088036, Some((791399408049, 208600591990)));
+        run(11, 4, Some((2, 9)));
+        run(13, 10, Some((6, 7)));
+        run(101, 56, Some((64, 37)));
+        run(10009, 1030, Some((8377, 1632)));
+        run(100049, 44402, Some((69581, 30468)));
+        run(1000000009, 665820697, Some((621366697, 378633312)));
+        run(1000000000039, 881398088036, Some((208600591990, 791399408049)));
     }
 }
