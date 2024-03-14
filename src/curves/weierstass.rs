@@ -90,7 +90,7 @@ impl<'a> WeierstrassCurve<'a> {
         let mut r1 = p1;
 
         for digit in k.value.iter_u32_digits() {
-            for b in BitIter::from(digit).at_big().rev() {
+            for b in BitIter::from(digit).rev() {
                 if b {
                     r0 = self.point_add(r0.clone(), r1.clone());
                 } else {
