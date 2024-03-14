@@ -87,16 +87,16 @@ impl<'a> WeierstrassCurve<'a> {
     ) -> Point<'a> {
         let infinity = Point::infinity(k.field);
         let mut r0 = infinity.clone();
-        let mut r1 = p1.clone();
+        let mut r1 = p1;
 
         for digit in k.value.iter_u32_digits() {
-            for b in BitIter::from(digit).rev() {
+            for b in BitIter::from(digit).at_big().rev() {
                 if b {
                     r0 = self.point_add(r0.clone(), r1.clone());
                 } else {
-                    r0 = self.point_add(r0, infinity.clone());
+                    r0 = self.point_add(r0, infinity.clone()); // optional, against cache-timing attack
                 }
-                r1 = self.point_add(r1.clone(), r1.clone())
+                r1 = self.point_add(r1.clone(), r1.clone());
             }
         }
 
