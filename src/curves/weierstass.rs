@@ -28,6 +28,15 @@ impl<'a> WeierstrassCurve<'a> {
         }
     }
 
+    pub fn get_base (&self) -> Point {
+        let x = self.a.field.get(BigUint::from(5_u8));
+        Point {
+            x: x.clone(),
+            y: self.evaluate_y(x).unwrap(),
+            z: self.a.field.one(),
+        }
+    }
+
     pub fn evaluate_y(
         &self,
         x: FieldElement<'a>,
@@ -237,6 +246,35 @@ impl<'a> WeierstrassCurve<'a> {
         // return newfpoint(x,ABS(-y,p));
         Point { x: x.0, y: -y, z: self.a.field.one() }
     }
+
+    pub fn find_order(
+        &self,
+        base: Point<'a>,
+    ) -> BigUint {
+        let m = (self.a.field.order.clone() + BigUint::one()) / BigUint::from(12_u8);
+
+        let list = [
+            BigUint::from(1_u8),
+            BigUint::from(2_u8),
+            BigUint::from(3_u8),
+            BigUint::from(4_u8),
+            BigUint::from(6_u8),
+            BigUint::from(12_u8),
+        ];
+
+        for i in 0..12 {
+            if i < 6 && self.montgomery_ladder(list[i].clone(), base.clone()).is_infinity() {
+                return list[i].clone();
+            } else if i >= 6 {
+                let n = m.clone() * list[i % 6].clone();
+                if self.montgomery_ladder(n.clone(), base.clone()).is_infinity() {
+                    return n
+                }
+            }
+        }
+
+        return self.a.field.order.clone() + BigUint::one();
+    }
 }
 
 #[cfg(test)]
@@ -246,6 +284,20 @@ mod tests {
     use crate::curves::point::Point;
     use crate::curves::weierstass::WeierstrassCurve;
     use crate::field::field::Field;
+
+    #[test]
+    fn get_order() {
+        let p = 61_u8;
+        let field = Field::new(BigUint::from(p));
+        let e = WeierstrassCurve::new(
+            field.get(BigUint::from(9_u8)),
+            field.one(),
+            BigUint::from(73_u8),
+        );
+
+        let base = e.get_base();
+        assert_eq!(e.find_order(base), (p + 1).into());
+    }
 
     #[test]
     fn primitive_nth_root () {
@@ -282,14 +334,7 @@ mod tests {
             BigUint::from(73_u8),
         );
 
-        let base = {
-            let x = field.get(BigUint::from(5_u8));
-            Point {
-                x: x.clone(),
-                y: e.evaluate_y(x).unwrap(),
-                z: field.one(),
-            }
-        };
+        let base = e.get_base();
         assert_eq!(base.y, field.get(BigUint::from(7_u8)));
 
         let naive_mul = |times: usize| {
