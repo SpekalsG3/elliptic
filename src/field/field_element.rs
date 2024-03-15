@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, BitXor, Div, Mul, Neg, Sub};
 use num_bigint::BigUint;
-use num_traits::Zero;
+use num_traits::{One, Zero};
 use crate::field::field::Field;
 
 #[derive(Clone, PartialEq, PartialOrd)]
@@ -38,6 +38,10 @@ impl<'a> FieldElement<'a> {
 
   pub fn is_zero(&self) -> bool {
     self.value.is_zero()
+  }
+
+  pub fn is_one(&self) -> bool {
+    self.value.is_one()
   }
 }
 

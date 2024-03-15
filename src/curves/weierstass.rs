@@ -209,14 +209,69 @@ impl<'a> WeierstrassCurve<'a> {
 
         r0
     }
+
+    pub fn primitive_root (&self) -> Point<'_> {
+        let y = -self.a.field.get(BigUint::from(2_u8));
+
+        // let x = (-self.get(BigUint::from(2_u8))) ^ self.order.clone();
+        let x = tonelli_shanks(-self.a.field.get(BigUint::from(3_u8)));
+        if let Some(x) = x {
+            // y = ABS(x*y - y,p);
+            let y = x.0 * y.clone() - y;
+
+            // return newfpoint(0,y);
+            return Point {
+                x: self.a.field.zero(),
+                y,
+                z: self.a.field.one(),
+            };
+        }
+
+        let yy = y.clone() * y.clone();
+        let x = yy - y.clone();
+        let x = x + self.a.field.one();
+
+        // x = modsquareroot(ABS(y*y - y + 1,p),p);
+        let x = tonelli_shanks(x).expect("should return proper sqrt");
+
+        // return newfpoint(x,ABS(-y,p));
+        Point { x: x.0, y: -y, z: self.a.field.one() }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use num_bigint::BigUint;
+    use num_traits::One;
     use crate::curves::point::Point;
     use crate::curves::weierstass::WeierstrassCurve;
     use crate::field::field::Field;
+
+    #[test]
+    fn primitive_nth_root () {
+        let p: u8 = 61;
+        let curve_order: usize = 73;
+
+        let field = Field::new(BigUint::from(p));
+        let e = WeierstrassCurve::new(
+            field.get(BigUint::from(9_u8)),
+            field.one(),
+            BigUint::from(curve_order),
+        );
+
+        let z = e.primitive_root();
+
+        let first = e.montgomery_ladder(BigUint::one(), z.clone());
+        let mut n = 2;
+        while n < curve_order+10 {
+            let r = e.montgomery_ladder(BigUint::from(n), z.clone());
+            if r == first {
+                break
+            }
+            n += 1;
+        }
+        assert_eq!(n - 1, curve_order);
+    }
 
     #[test]
     fn test () {

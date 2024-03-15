@@ -12,7 +12,7 @@ pub struct Point<'a> {
 
 impl<'a> Point<'a> {
     pub fn is_infinity(&self) -> bool {
-        self.z.is_zero()
+        self.y.is_one() && self.z.is_zero()
     }
 
     pub fn infinity(f: &'a Field) -> Self {
