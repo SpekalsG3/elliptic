@@ -31,45 +31,37 @@ impl<'a> FieldElement<'a> {
     }
   }
 
-  pub fn inverse (&self) -> FieldElement<'a> {
-    FieldElement {
-      field: self.field,
-      value: self.field.inv(self.value.clone()),
-    }
+  pub fn inverse(mut self) -> Self {
+    self.value = self.field.inv(self.value);
+    self
   }
 
-  pub fn is_zero (&self) -> bool {
+  pub fn is_zero(&self) -> bool {
     self.value.is_zero()
   }
 }
 
 impl<'a> Add for FieldElement<'a> {
   type Output = Self;
-  fn add (self, rhs: Self) -> Self::Output {
-    FieldElement {
-      field: self.field,
-      value: self.field.add_mod(self.value, rhs.value),
-    }
+  fn add (mut self, rhs: Self) -> Self::Output {
+    self.value = self.field.add_mod(self.value, rhs.value);
+    self
   }
 }
 
 impl<'a> Sub for FieldElement<'a> {
   type Output = Self;
-  fn sub (self, rhs: Self) -> Self::Output {
-    FieldElement {
-      field: self.field,
-      value: self.field.sub_mod(self.value, rhs.value),
-    }
+  fn sub (mut self, rhs: Self) -> Self::Output {
+    self.value = self.field.sub_mod(self.value, rhs.value);
+    self
   }
 }
 
 impl<'a> Mul for FieldElement<'a> {
   type Output = Self;
-  fn mul (self, rhs: Self) -> Self::Output {
-    FieldElement {
-      field: self.field,
-      value: self.field.mul_mod(self.value, rhs.value),
-    }
+  fn mul (mut self, rhs: Self) -> Self::Output {
+    self.value = self.field.mul_mod(self.value, rhs.value);
+    self
   }
 }
 
@@ -84,11 +76,9 @@ impl<'a> Div for FieldElement<'a> {
 
 impl<'a> Neg for FieldElement<'a> {
   type Output = FieldElement<'a>;
-  fn neg (self) -> Self::Output {
-    FieldElement {
-      field: self.field,
-      value: self.field.neg_mod(self.value),
-    }
+  fn neg (mut self) -> Self::Output {
+    self.value = self.field.neg_mod(self.value);
+    self
   }
 }
 

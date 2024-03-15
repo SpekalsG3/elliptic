@@ -65,10 +65,6 @@ impl<'a> Field {
   }
 
   pub(crate) fn add_mod (&self, a: BigUint, b: BigUint) -> BigUint {
-    if b.is_zero() {
-      return a;
-    }
-
     self.sub_mod(a, self.order.clone() - b)
   }
 
@@ -125,7 +121,7 @@ impl<'a> Field {
     match a.cmp(&BigInt::zero()) {
       Ordering::Greater => a.to_biguint().unwrap(),
       Ordering::Equal => BigUint::zero(),
-      Ordering::Less => self.sub_mod(self.order.clone(), (-a).to_biguint().unwrap()),
+      Ordering::Less => self.neg_mod((-a).to_biguint().unwrap()),
     }
   }
 }
