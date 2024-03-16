@@ -338,7 +338,7 @@ mod tests {
     use crate::field::field::Field;
 
     #[test]
-    fn evaluelinedivi() {
+    fn eval_divisor() {
         let field = Field::new(BigUint::from(61_u8));
         let e = WeierstrassCurve::new(
             field.get(BigUint::from(9_u8)),
@@ -349,19 +349,19 @@ mod tests {
             let a = e.get_base();
             let b = e.double_and_add(BigUint::from(25_u32), a.clone());
             let c = e.double_and_add(BigUint::from(53_u32), a.clone());
-            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(40_u8))));
+            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(12_u8))));
         }
         {
             let a = e.get_base();
             let b = e.double_and_add(BigUint::from(678234_u32), a.clone());
             let c = e.double_and_add(BigUint::from(346857_u32), a.clone());
-            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(9_u8))));
+            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(20_u8))));
         }
         {
             let a = e.get_base();
             let b = e.double_and_add(BigUint::from(111_u32), a.clone());
             let c = e.double_and_add(BigUint::from(999_u32), a.clone());
-            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(19_u8))));
+            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(26_u8))));
         }
     }
 
