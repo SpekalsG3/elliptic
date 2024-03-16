@@ -1,4 +1,3 @@
-use std::ops::{BitAnd, Shr};
 use std::usize;
 
 #[derive(Debug, PartialOrd, PartialEq)]

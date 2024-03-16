@@ -1,6 +1,5 @@
-use std::ops::Neg;
 use num_bigint::{BigInt, BigUint};
-use num_traits::{ToPrimitive, Zero};
+use num_traits::Zero;
 
 // original from tutorial
 #[deprecated(note="overflow when working close to boundary, use `u_xgcd`")]
