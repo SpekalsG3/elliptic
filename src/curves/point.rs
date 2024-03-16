@@ -1,5 +1,4 @@
 use std::ops::Neg;
-use num_traits::One;
 use crate::field::field::Field;
 use crate::field::field_element::FieldElement;
 
@@ -12,7 +11,7 @@ pub struct Point<'a> {
 
 impl<'a> Point<'a> {
     pub fn is_infinity(&self) -> bool {
-        self.y.is_one() && self.z.is_zero()
+        self.z.is_zero()
     }
 
     pub fn infinity(f: &'a Field) -> Self {
