@@ -363,9 +363,12 @@ impl<'a> WeierstrassCurve<'a> {
             let mut i = 0;
             loop {
                 // from definition `S` is any point on the curve not in `{O, P, −Q, P − Q}`
-                // but it shows that `S` also should not be a multiple of P
-                // otherwise chord-tang lines will vanish and evaluation will result in division by zero
-                // specifically, evaluation of `l_{[m]P,[m]P} / v_{[2m]P}` in point `Q+S`
+                // but it shows there's also some another property to points `P`,`Q` and `S`
+                // because pairing always works if order of S != m
+                // but only sometimes works when ord(S) == m (for example, S=(339;499;1))
+                // and other times results in division by zero
+                // specifically, in evaluation of `l_{[m]P,[m]P} / v_{[2m]P}` in point `Q+S`
+                // idk why
                 if !s.is_infinity()
                     && s != p
                     && s != -q.clone()
