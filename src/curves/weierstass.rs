@@ -248,8 +248,12 @@ impl<'a> WeierstrassCurve<'a> {
         q: Point<'a>,
         s: Point<'a>,
     ) -> Option<FieldElement<'a>> {
+        if p.is_infinity() || q.is_infinity() {
+            return None;
+        }
+
         let result;
-        if p.is_infinity() || q.is_infinity() || (p == -q.clone()) { // when slope is infinity
+        if p == -q.clone() { // when slope is infinity
             result = s.x - p.x;
         } else {
             let slope = if p.x == q.x {
