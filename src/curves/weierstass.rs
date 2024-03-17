@@ -1,5 +1,6 @@
 use num_bigint::BigUint;
-use num_traits::{One, Zero};
+use num_traits::One;
+use rand::{RngCore, thread_rng};
 use crate::curves::point::Point;
 use crate::field::field_element::FieldElement;
 use crate::utils::bit_iter::BitIter;
@@ -29,7 +30,7 @@ impl<'a> WeierstrassCurve<'a> {
         let x = self.a.field.get(BigUint::from(5_u8));
         Point {
             x: x.clone(),
-            y: self.evaluate_y(x).unwrap(),
+            y: self.evaluate_y(x).unwrap().0,
             z: self.a.field.one(),
         }
     }
@@ -37,12 +38,12 @@ impl<'a> WeierstrassCurve<'a> {
     pub fn evaluate_y(
         &self,
         x: FieldElement<'a>,
-    ) -> Option<FieldElement<'a>> {
+    ) -> Option<(FieldElement<'a>, FieldElement<'a>)> {
         tonelli_shanks(
             x.clone() * x.clone() * x.clone()
                 + self.a.clone() * x.clone()
                 + self.b.clone()
-        ).map(|x| x.0)
+        )
     }
 
     fn point_double(
@@ -245,26 +246,26 @@ impl<'a> WeierstrassCurve<'a> {
     // the divisor of `g_{p,q}` is [p]+[q]−[p+q]−[O]
     pub fn eval_divisor(
         &self,
-        p1: Point<'a>,
-        p2: Point<'a>,
+        p: Point<'a>,
+        q: Point<'a>,
         s: Point<'a>,
     ) -> Option<FieldElement<'a>> {
-        if (p1.is_infinity() && p2.is_infinity()) || s.is_infinity() {
+        if (p.is_infinity() && q.is_infinity()) || s.is_infinity() {
             return None; // or one
         }
 
         let result;
-        if p1.is_infinity() || p2.is_infinity() || (p1 == -p2.clone()) {
-            result = s.x - p1.x;
+        if p.is_infinity() || q.is_infinity() || (p == -q.clone()) {
+            result = s.x - p.x;
         } else {
-            let slope = if p1.x == p2.x {
+            let slope = if p.x == q.x {
                 let three = self.a.field.get(BigUint::from(3_u8));
-                (three * p1.x.clone() * p1.x.clone() + self.a.clone()) / (p1.y.clone() + p1.y.clone())
+                (three * p.x.clone() * p.x.clone() + self.a.clone()) / (p.y.clone() + p.y.clone())
             } else {
-                (p2.y - p1.y.clone()) / (p2.x.clone() - p1.x.clone())
+                (q.y - p.y.clone()) / (q.x.clone() - p.x.clone())
             };
-            let num = s.y - p1.y - slope.clone() * (s.x.clone() - p1.x.clone());
-            let din = s.x + p1.x + p2.x - slope.clone() * slope;
+            let num = s.y - p.y - slope.clone() * (s.x.clone() - p.x.clone());
+            let din = s.x + p.x + q.x - slope.clone() * slope;
             result = num / din;
         }
 
@@ -272,21 +273,16 @@ impl<'a> WeierstrassCurve<'a> {
     }
 
     // evaluation of Miller function `f_{m,P}` in point `Q` (rational function satisfying `div(f_{m,P}) = m[P] − [mP] − (m − 1)[O]`)
-    pub fn miller(
+    fn miller(
         &self,
-        a: Point<'a>,
-        b: Point<'a>,
+        p: Point<'a>,
+        q: Point<'a>,
         m: BigUint,
     ) -> Option<FieldElement<'a>> {
-        let order = self.find_order(a.clone());
-        if !(m.clone() % order.clone()).is_zero() {
-            return None;
-        }
-
         let size = u32::BITS as usize;
         let mut bits = 0;
         {
-            let mut order_iter = order.iter_u32_digits().rev();
+            let mut order_iter = m.iter_u32_digits().rev();
             if let Some(digit) = order_iter.next() {
                 let bit_iter = BitIter::from(digit).skip_while(|b| b == &false);
                 bits += bit_iter.count();
@@ -301,12 +297,12 @@ impl<'a> WeierstrassCurve<'a> {
                 BitIter::from(digit).skip(size - count)
             });
 
-        let mut t = a.clone();
+        let mut t = p.clone();
         let mut f = self.a.field.one();
 
         for byte in array.skip(1) {
-            // g_{t,t}(b) = l(b) / l'(b) where l is the tangent line of t at curve c, and l' is the line through 2t and -2t
-            let temp = match self.eval_divisor(t.clone(), t.clone(), b.clone()) {
+            // g_{t,t}(Q) = l(Q) / l'(Q) where l is the tangent line of t at curve c, and l' is the line through 2t and -2t
+            let temp = match self.eval_divisor(t.clone(), t.clone(), q.clone()) {
                 None => { return None; },
                 Some(t) => t,
             };
@@ -315,24 +311,93 @@ impl<'a> WeierstrassCurve<'a> {
             t = self.point_double(t); // t = 2t // todo: project_point_double
 
             if byte {
-                // g_{t,a}(b) = l is the line through t and a, l' through t+a and -(t+a)
-                let temp = match self.eval_divisor(t.clone(), a.clone(), b.clone()) {
+                // g_{t,P}(Q) = l is the line through t and a, l' through t+a and -(t+P)
+                let temp = match self.eval_divisor(t.clone(), p.clone(), q.clone()) {
                     None => { return None; }
                     Some(t) => t,
                 };
-                f = f * temp; // f = f * g_{t,a}(b)
-                t = self.point_add(t, a.clone()); // t = t + a // todo: project_point_add
+                f = f * temp; // f = f * g_{t,P}(Q)
+                t = self.point_add(t, p.clone()); // t = t + P // todo: project_point_add
             }
         }
 
         Some(f)
+    }
+
+    pub fn weilpairing(
+        &self,
+        m: BigUint,
+        p: Point<'a>,
+        q: Point<'a>,
+    ) -> Option<FieldElement<'a>> {
+        // { // we calculate m using the same function, is there a point to do this check?
+        //     // Let `P,Q in E[m]` be points of order `m` in `E`
+        //     let m_p = self.find_order(p.clone());
+        //     let m_q = self.find_order(q.clone());
+        //     if m_p != m_q || m_p != m {
+        //         return None;
+        //     }
+        // }
+
+        let mut thread_rng = thread_rng();
+        let mut bytes = vec![0; self.a.field.order.bits() as usize];
+
+        let mut random_point = || {
+            for _ in 0..100 {
+                thread_rng.fill_bytes(&mut bytes);
+                let x = self.a.field.sample(&bytes);
+
+                if let Some(y) = self.evaluate_y(x.clone()) {
+                    let s = Point {
+                        x,
+                        y: y.0,
+                        z: self.a.field.one(),
+                    };
+
+                    // `S not in {O, P, −Q, P − Q}`
+                    if s.is_infinity() || s == p.clone() || s == -q.clone() || s == self.point_add(p.clone(), -q.clone()) {
+                        continue;
+                    }
+
+                    return Some(s);
+                }
+            }
+            None
+        };
+
+        for _ in 0..1 { // number of tries
+            let s = match random_point() {
+                Some(s) => s,
+                None => { continue }
+            };
+
+            let mp_q_s = match self.miller(p.clone(), self.point_add(q.clone(), s.clone()), m.clone()) {
+                Some(s) => s,
+                None => { continue }
+            };
+            let mp_s = match self.miller(p.clone(), s.clone(), m.clone()) {
+                Some(s) => s,
+                None => { continue }
+            };
+            let mq_p_ns = match self.miller(q.clone(), self.point_add(p.clone(), -s.clone()), m.clone()) {
+                Some(s) => s,
+                None => { continue }
+            };
+            let mq_ns = match self.miller(q.clone(), -s.clone(), m.clone()) {
+                Some(s) => s,
+                None => { continue }
+            };
+
+            return Some((mp_q_s / mp_s) / (mq_p_ns / mq_ns))
+        }
+
+        None
     }
 }
 
 #[cfg(test)]
 mod tests {
     use num_bigint::BigUint;
-    use num_traits::One;
     use crate::curves::point::Point;
     use crate::curves::weierstass::WeierstrassCurve;
     use crate::field::field::Field;
@@ -421,7 +486,9 @@ mod tests {
                 y: field.get(BigUint::from(60_u8)),
                 z: field.one(),
             };
-            assert_eq!(e.find_order(p), (5_u8).into());
+            let m = e.find_order(p.clone());
+            assert_eq!(m, (5_u8).into());
+            assert_eq!(e.double_and_add(m, p), Point::infinity(&field));
         }
         {
             let q = Point {
@@ -429,7 +496,9 @@ mod tests {
                 y: field.get(BigUint::from(387_u16)),
                 z: field.one(),
             };
-            assert_eq!(e.find_order(q), (5_u8).into());
+            let m = e.find_order(q.clone());
+            assert_eq!(m, (5_u8).into());
+            assert_eq!(e.double_and_add(m, q), Point::infinity(&field));
         }
         {
             let s = Point {
@@ -437,12 +506,70 @@ mod tests {
                 y: field.get(BigUint::from(36_u16)),
                 z: field.one(),
             };
-            assert_eq!(e.find_order(s), (130_u8).into());
+            let m = e.find_order(s.clone());
+            assert_eq!(m, (130_u8).into());
+            assert_eq!(e.double_and_add(m, s), Point::infinity(&field));
         }
     }
 
     #[test]
-    fn test () {
+    pub fn weilpairing() {
+        let field = Field::new(BigUint::from(631_u16));
+        let e = WeierstrassCurve::new(
+            field.get(BigUint::from(30_u8)),
+            field.get(BigUint::from(34_u8)),
+        );
+
+        let p = Point {
+            x: field.get(BigUint::from(36_u8)),
+            y: field.get(BigUint::from(60_u8)),
+            z: field.one(),
+        };
+        let q = Point {
+            x: field.get(BigUint::from(121_u8)),
+            y: field.get(BigUint::from(387_u16)),
+            z: field.one(),
+        };
+        let m = e.find_order(p.clone());
+        assert_eq!(m, e.find_order(q.clone()));
+
+        let pairing = e.weilpairing(m.clone(), p.clone(), q.clone());
+
+        // properties
+        { // non-degenerate
+            assert_eq!(pairing, Some(field.get(BigUint::from(242_u8))));
+        }
+        let pairing = pairing.unwrap();
+        { // mth root of unity
+            assert_eq!(pairing.clone() ^ m.clone(), field.one());
+        }
+        { // bilinear
+            let a = BigUint::from(7_u8);
+            assert_eq!(
+                e.weilpairing(m.clone(), e.double_and_add(a.clone(), p.clone()), q.clone()),
+                Some(pairing.clone() ^ a.clone()),
+            );
+            assert_eq!(
+                e.weilpairing(m.clone(), p.clone(), e.double_and_add(a.clone(), q.clone())),
+                Some(pairing.clone() ^ a.clone()),
+            );
+        }
+        {// alternating
+            let a = BigUint::from(7_u8);
+            assert_eq!(
+                e.weilpairing(m.clone(), p.clone(), p.clone()),
+                Some(field.one()),
+            );
+            let p2 = e.double_and_add(a.clone(), p.clone());
+            assert_eq!(
+                e.weilpairing(m.clone(), p2.clone(), p2.clone()),
+                Some(field.one()),
+            );
+        }
+    }
+
+    #[test]
+    fn adds_n_mults() {
         let field = Field::new(BigUint::from(61_u8));
         let e = WeierstrassCurve::new(
             field.get(BigUint::from(9_u8)),

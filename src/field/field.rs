@@ -56,6 +56,16 @@ impl<'a> Field {
     }
   }
 
+  pub fn sample (&self, bytes: &[u8]) -> FieldElement<'_> {
+    let res = bytes
+        .iter()
+        .fold(BigUint::zero(), |acc, b| {
+          (acc << 8) ^ BigUint::from(*b)
+        });
+
+    FieldElement::new(self, res % self.order.clone())
+  }
+
   pub(crate) fn sub_mod (&self, a: BigUint, b: BigUint) -> BigUint {
     match a.cmp(&b) {
       Ordering::Greater => a - b,
