@@ -80,12 +80,12 @@ impl<'a> WeierstrassCurve<'a> {
             }
             return self.point_double(p1);
         }
-        let three = FieldElement::new(p1.x.field, BigUint::from(3_u8));
+        let three = BigUint::from(3_u8);
         let slope = (p2.y - p1.y.clone()) / (p2.x.clone() - p1.x.clone());
         let x = slope.clone() * slope.clone() - p1.x.clone() - p2.x.clone();
         Point {
             z: x.field.one(),
-            y: (p1.x.clone() + p1.x.clone() + p2.x) * slope.clone() - (slope ^ three.value) - p1.y,
+            y: (p1.x.clone() + p1.x.clone() + p2.x) * slope.clone() - (slope ^ three) - p1.y,
             x,
         }
     }
@@ -238,24 +238,18 @@ impl<'a> WeierstrassCurve<'a> {
         n
     }
 
-    // evaluate the divisor of `g_{p,q}` in point `s` where `g_{p,q}(s) = l(p,q)/l'(s)`
-    // where l(p,q) is a chord line (line connecting two points p and q)
-    // and l'(s) is a tangent line touching in point p
-    // running each line with respective points (p and q, or s) and then substituting in curve expression will result in polynomial with roots as points on the curve
-    // a.k.a the lines, that allow to find the point sum and point double respectively
-    // the divisor of `g_{p,q}` is [p]+[q]−[p+q]−[O]
-    pub fn eval_divisor(
+    // evaluate addition of
+    // chord line going through `P` and `Q` (or tangent line if `P==Q`)
+    // and vertical line going through `P+Q` and `-(P+Q)`
+    // in the point `S`
+    pub fn eval_chord_tangent(
         &self,
         p: Point<'a>,
         q: Point<'a>,
         s: Point<'a>,
     ) -> Option<FieldElement<'a>> {
-        if (p.is_infinity() && q.is_infinity()) || s.is_infinity() {
-            return None; // or one
-        }
-
         let result;
-        if p.is_infinity() || q.is_infinity() || (p == -q.clone()) {
+        if p.is_infinity() || q.is_infinity() || (p == -q.clone()) { // when slope is infinity
             result = s.x - p.x;
         } else {
             let slope = if p.x == q.x {
@@ -300,28 +294,52 @@ impl<'a> WeierstrassCurve<'a> {
         let mut t = p.clone();
         let mut f = self.a.field.one();
 
+        // l_{[m]*T,T} / v_{[m+1]*T} where
+        // `l` is the line through `T` and `[m]T` (or tangent if `T=[m]T`),
+        // and `v` is the vertical through `[m+1]T` and `-[m+1]T`
+        // has the divisor `f_{m+1,T} − f_{m,T}`, thus we use that to obtain `f_{m+1,T} = f_{m,T} * g_{m,T}`
+        // and similarly `l_{[m]T,[m]T} / v_{[2m]T}` has divisor for `f_{2m,T} - f_{m,T}^2`
+        // so for any `m` we can quickly obtain `f_{m+1,T}` and `f_{2m,T}`
+        // this is where the double-and-add-like Miller algorithm comes from
+
         for byte in array.skip(1) {
-            // g_{t,t}(Q) = l(Q) / l'(Q) where l is the tangent line of t at curve c, and l' is the line through 2t and -2t
-            let temp = match self.eval_divisor(t.clone(), t.clone(), q.clone()) {
-                None => { return None; },
-                Some(t) => t,
-            };
-            f = f.clone() * f; // f = f*f
-            f = f * temp; // f = f * g_{t,t}(b) = f * l(b) / l'(b)
+            let temp = self.eval_chord_tangent(t.clone(), t.clone(), q.clone())?; // eval `l_{[m]*T,T} / v_{[m+1]*T}` in `Q`
+            f = f.clone() * f; // `f_{m,P} ^ 2`
+            f = f * temp;
             t = self.point_double(t); // t = 2t // todo: project_point_double
 
             if byte {
                 // g_{t,P}(Q) = l is the line through t and a, l' through t+a and -(t+P)
-                let temp = match self.eval_divisor(t.clone(), p.clone(), q.clone()) {
-                    None => { return None; }
-                    Some(t) => t,
-                };
+                let temp = self.eval_chord_tangent(t.clone(), p.clone(), q.clone())?; // eval `l_{[m]*T,T} / v_{[m+1]*T}` in `Q`
                 f = f * temp; // f = f * g_{t,P}(Q)
                 t = self.point_add(t, p.clone()); // t = t + P // todo: project_point_add
             }
         }
 
         Some(f)
+    }
+
+    pub fn random_point(
+        &self,
+    ) -> Option<Point<'a>> {
+        let mut thread_rng = thread_rng();
+        let mut bytes = vec![0; self.a.field.order.bits() as usize];
+
+        for _ in 0..100 {
+            thread_rng.fill_bytes(&mut bytes);
+            let x = self.a.field.sample(&bytes);
+
+            if let Some(y) = self.evaluate_y(x.clone()) {
+                let s = Point {
+                    x,
+                    y: y.0,
+                    z: self.a.field.one(),
+                };
+
+                return Some(s);
+            }
+        }
+        None
     }
 
     pub fn weilpairing(
@@ -339,59 +357,40 @@ impl<'a> WeierstrassCurve<'a> {
         //     }
         // }
 
-        let mut thread_rng = thread_rng();
-        let mut bytes = vec![0; self.a.field.order.bits() as usize];
-
-        let mut random_point = || {
-            for _ in 0..100 {
-                thread_rng.fill_bytes(&mut bytes);
-                let x = self.a.field.sample(&bytes);
-
-                if let Some(y) = self.evaluate_y(x.clone()) {
-                    let s = Point {
-                        x,
-                        y: y.0,
-                        z: self.a.field.one(),
-                    };
-
-                    // `S not in {O, P, −Q, P − Q}`
-                    if s.is_infinity() || s == p.clone() || s == -q.clone() || s == self.point_add(p.clone(), -q.clone()) {
-                        continue;
-                    }
-
-                    return Some(s);
+        let mut s = self.random_point().expect("failed to gen point");
+        {
+            let tries = 100;
+            let mut i = 0;
+            loop {
+                // from definition `S` is any point on the curve not in `{O, P, −Q, P − Q}`
+                // but it shows that `S` also should not be a multiple of P
+                // otherwise chord-tang lines will vanish and evaluation will result in division by zero
+                // specifically, evaluation of `l_{[m]P,[m]P} / v_{[2m]P}` in point `Q+S`
+                if !s.is_infinity()
+                    && s != p
+                    && s != -q.clone()
+                    && s != self.point_add(p.clone(), -q.clone())
+                    && self.find_order(s.clone()) != m
+                {
+                    break
                 }
+                s = self.random_point().expect("failed to gen point");
+                i += 1;
             }
-            None
-        };
-
-        for _ in 0..1 { // number of tries
-            let s = match random_point() {
-                Some(s) => s,
-                None => { continue }
-            };
-
-            let mp_q_s = match self.miller(p.clone(), self.point_add(q.clone(), s.clone()), m.clone()) {
-                Some(s) => s,
-                None => { continue }
-            };
-            let mp_s = match self.miller(p.clone(), s.clone(), m.clone()) {
-                Some(s) => s,
-                None => { continue }
-            };
-            let mq_p_ns = match self.miller(q.clone(), self.point_add(p.clone(), -s.clone()), m.clone()) {
-                Some(s) => s,
-                None => { continue }
-            };
-            let mq_ns = match self.miller(q.clone(), -s.clone(), m.clone()) {
-                Some(s) => s,
-                None => { continue }
-            };
-
-            return Some((mp_q_s / mp_s) / (mq_p_ns / mq_ns))
+            if i == tries {
+                panic!("failed to generate proper s for provided M");
+                // return None;
+            }
         }
 
-        None
+        let mp_q_s  = self.miller(p.clone(), self.point_add(q.clone(),  s.clone()), m.clone())?;
+        let mp_s    = self.miller(p.clone(),                            s.clone() , m.clone())?;
+        let mq_p_ns = self.miller(q.clone(), self.point_add(p.clone(), -s.clone()), m.clone())?;
+        let mq_ns   = self.miller(q.clone(),                           -s.clone() , m.clone())?;
+
+        // it is `e_m(P,S)'` as inverse of weil pairing `e_m(P,S)` and, in fact, they are equal,
+        // but it has all the same properties so application-wise we can use any of them
+        Some((mp_q_s / mp_s) / (mq_p_ns / mq_ns))
     }
 }
 
@@ -414,19 +413,19 @@ mod tests {
             let a = e.get_base();
             let b = e.double_and_add(BigUint::from(25_u32), a.clone());
             let c = e.double_and_add(BigUint::from(53_u32), a.clone());
-            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(12_u8))));
+            assert_eq!(e.eval_chord_tangent(a, b, c), Some(field.get(BigUint::from(12_u8))));
         }
         {
             let a = e.get_base();
             let b = e.double_and_add(BigUint::from(678234_u32), a.clone());
             let c = e.double_and_add(BigUint::from(346857_u32), a.clone());
-            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(20_u8))));
+            assert_eq!(e.eval_chord_tangent(a, b, c), Some(field.get(BigUint::from(20_u8))));
         }
         {
             let a = e.get_base();
             let b = e.double_and_add(BigUint::from(111_u32), a.clone());
             let c = e.double_and_add(BigUint::from(999_u32), a.clone());
-            assert_eq!(e.eval_divisor(a, b, c), Some(field.get(BigUint::from(26_u8))));
+            assert_eq!(e.eval_chord_tangent(a, b, c), Some(field.get(BigUint::from(26_u8))));
         }
     }
 
@@ -521,16 +520,21 @@ mod tests {
         );
 
         let p = Point {
-            x: field.get(BigUint::from(36_u8)),
-            y: field.get(BigUint::from(60_u8)),
+            x: field.get(BigUint::from(36_u16)),
+            y: field.get(BigUint::from(60_u16)),
             z: field.one(),
         };
         let q = Point {
-            x: field.get(BigUint::from(121_u8)),
+            x: field.get(BigUint::from(121_u16)),
             y: field.get(BigUint::from(387_u16)),
             z: field.one(),
         };
         let m = e.find_order(p.clone());
+        // any `m` will be co-prime to `char(F)` which is prime, no need to check that
+        // todo
+        //  check `Q` is not a multiple of point `P` to ensure that functions
+        //  used during evaluation of miller function are not vanished
+        //  otherwise this will produce degenerative pairing (resulting in `Some(1)`)
         assert_eq!(m, e.find_order(q.clone()));
 
         let pairing = e.weilpairing(m.clone(), p.clone(), q.clone());

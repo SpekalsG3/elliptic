@@ -39,7 +39,7 @@ impl<'a> Field {
   }
 
   pub fn get(&self, v: BigUint) -> FieldElement {
-    FieldElement::new(self, v)
+    FieldElement::new(self, v % self.order.clone())
   }
 
   pub fn zero (&'a self) -> FieldElement<'a> {
