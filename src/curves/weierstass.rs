@@ -354,15 +354,9 @@ impl<'a> WeierstrassCurve<'a> {
         if a.is_infinity() {
             return a;
         }
-
-        // FPOINT * temp = primitroot(p);
         let temp = self.a.field.generator().expect("should have generator");
-
-        // fmulti(a->x,temp,p,result->x);
         let x = a.x * temp;
-        // assign(result->y, a->y);
         let y = a.y;
-
         Point {
             x,
             y,
