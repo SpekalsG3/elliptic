@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use num_bigint::BigUint;
 use num_traits::One;
 use rand::{RngCore, thread_rng};
@@ -389,20 +390,49 @@ impl<'a> WeierstrassCurve<'a> {
             let tries = 100;
             let mut i = 0;
             loop {
-                // from definition `S` is any point on the curve not in `{O, P, −Q, P − Q}`
-                // but it shows there's also some another property to points `P`,`Q` and `S`
-                // because pairing always works if order of S != m
-                // but only sometimes works when ord(S) == m (for example, S=(339;499;1))
-                // and other times results in division by zero
-                // specifically, in evaluation of `l_{[m]P,[m]P} / v_{[2m]P}` in point `Q+S`
-                // idk why
+                // `S` is any point on the curve not in `{O, P, −Q, P − Q}`
                 if !s.is_infinity()
                     && s != p
                     && s != -q.clone()
                     && s != self.point_add(p.clone(), -q.clone())
-                    && self.find_order(s.clone()) != m
                 {
-                    break
+                    let mut map_p = HashMap::new();
+                    {
+                        let mut i = BigUint::from(1_u8);
+                        let mut add = p.clone();
+                        while i <= m {
+                            map_p.insert(format!("({:?},{:?},{:?})", add.x, add.y, add.z), i.clone());
+                            add = self.point_add(add, p.clone());
+                            i += BigUint::one();
+                        }
+                    }
+                    let mut map_q = HashMap::new();
+                    {
+                        let mut i = BigUint::from(1_u8);
+                        let mut add = q.clone();
+                        while i <= m {
+                            map_q.insert(format!("({:?},{:?},{:?})", add.x, add.y, add.z), i.clone());
+                            add = self.point_add(add, q.clone());
+                            i += BigUint::one();
+                        }
+                    }
+                    let mut is_good = true;
+                    {
+                        let mut i = BigUint::from(1_u8);
+                        let mut add = s.clone();
+                        while i <= m {
+                            let key = format!("({:?},{:?},{:?})", add.x, add.y, add.z);
+                            if map_p.contains_key(&key) || map_q.contains_key(&key) {
+                                is_good = false;
+                                break
+                            }
+                            add = self.point_add(add, s.clone());
+                            i += BigUint::one();
+                        }
+                    }
+                    if is_good {
+                        break
+                    }
                 }
                 s = self.random_point().expect("failed to gen point");
                 i += 1;
@@ -543,6 +573,14 @@ mod tests {
 
     #[test]
     pub fn weilpairing() {
+        // Haven't seen this in any paper but
+        // Pairing works consistently only if `P`,`Q` and `S` subgroups have no overlaps
+        // meaning even if `P`!=`Q`!=`S` `[a]P`!=`[b]Q`!=`[c]S`
+        // where a, b and c any random scalar in their respective orders
+        // Otherwise miller algorithm will sometimes fail with division by zero in random test below
+        // Specifically, in `eval_chord_tangent` evaluation of `l_{[m]P,[m]P} / v_{[2m]P}` in point `Q+S`
+        // With this check it is consistent by becomes infinitely hard to find such three points.
+
         let field = Field::new(BigUint::from(631_u16));
         let e = WeierstrassCurve::new(
             field.get(BigUint::from(30_u8)),
@@ -560,47 +598,47 @@ mod tests {
             z: field.one(),
         };
         let m = e.find_order(p.clone());
+        // `m` also has to be odd
         // any `m` will be co-prime to `char(F)` which is prime, no need to check that
-        // todo
-        //  check `Q` is not a multiple of point `P` to ensure that functions
-        //  used during evaluation of miller function are not vanished
-        //  otherwise this will produce degenerative pairing (resulting in `Some(1)`)
         assert_eq!(m, e.find_order(q.clone()));
 
-        let pairing = e.weilpairing(m.clone(), p.clone(), q.clone());
+        for test in 0..1_000_000 {
+            println!("#{test}");
+            let pairing = e.weilpairing(m.clone(), p.clone(), q.clone());
 
-        // properties
-        { // non-degenerate
-            // assert_eq!(pairing, Some(field.get(BigUint::from(242_u8))));
-            assert!(pairing.is_some());
-            assert_ne!(pairing, Some(field.one()));
-        }
-        let pairing = pairing.unwrap();
-        { // mth root of unity
-            assert_eq!(pairing.clone() ^ m.clone(), field.one());
-        }
-        { // bilinear
-            let a = BigUint::from(7_u8);
-            assert_eq!(
+            // properties
+            { // non-degenerate
+                // assert_eq!(pairing, Some(field.get(BigUint::from(242_u8))));
+                assert!(pairing.is_some());
+                assert_ne!(pairing, Some(field.one()));
+            }
+            let pairing = pairing.unwrap();
+            { // mth root of unity
+                assert_eq!(pairing.clone() ^ m.clone(), field.one());
+            }
+            { // bilinear
+                let a = BigUint::from(7_u8);
+                assert_eq!(
                 e.weilpairing(m.clone(), e.double_and_add(a.clone(), p.clone()), q.clone()),
                 Some(pairing.clone() ^ a.clone()),
             );
-            assert_eq!(
+                assert_eq!(
                 e.weilpairing(m.clone(), p.clone(), e.double_and_add(a.clone(), q.clone())),
                 Some(pairing.clone() ^ a.clone()),
             );
-        }
-        {// alternating
-            let a = BigUint::from(7_u8);
-            assert_eq!(
+            }
+            {// alternating
+                let a = BigUint::from(7_u8);
+                assert_eq!(
                 e.weilpairing(m.clone(), p.clone(), p.clone()),
                 Some(field.one()),
             );
-            let p2 = e.double_and_add(a.clone(), p.clone());
-            assert_eq!(
+                let p2 = e.double_and_add(a.clone(), p.clone());
+                assert_eq!(
                 e.weilpairing(m.clone(), p2.clone(), p2.clone()),
                 Some(field.one()),
             );
+            }
         }
     }
 
